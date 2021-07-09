@@ -2,6 +2,7 @@ from clingo.control import Control
 from clingo.symbol import Number
 from operator import itemgetter
 import numpy as np
+import os
 
 def model_to_program(symbols):
     return "".join(str(symbol)+"." for symbol in symbols)
@@ -12,7 +13,6 @@ class HallOfFame:
         self.size = size
 
     def add(self, member, quality):
-        #print("hof add", quality, len(self.members))
         if not self.members or self.best[1] < quality:
             self.on_record(member, quality)
 
@@ -28,10 +28,10 @@ class HallOfFame:
     # TODO - make this more polymorphic
     def on_record(self, member, quality):
         print(f"New record : {quality}")
-        joint = member[0] + member[1]
-        print(Graph2dSquare.fromModel(joint).formatPlanMathematica())
-        with open("record.lp", "w") as sav:
-            print("".join(str(a)+"." for a in member[0]), file=sav, flush=True)
+        #joint = member[0] + member[1]
+        #print(Graph2dSquare.fromModel(joint).formatPlanMathematica())
+        #with open("record.lp", "w") as sav:
+        #    print("".join(str(a)+"." for a in member[0]), file=sav, flush=True)
 
     def constraint_to_better(self):
         # The idea of this function was to constraint further search by making bounds based on existing solutions
@@ -111,7 +111,7 @@ class Planner:
         self.models = HallOfFame()
         self.current_graph = self.current_quality = self.current_plan = None
 
-    def optimize_plan(self, graph, t=20, threads=6):
+    def optimize_plan(self, graph, t, threads=5):
         self.current_graph = graph
         self.current_plan = None
         self.current_quality = float("inf"), float("inf")
@@ -150,24 +150,56 @@ class Generator:
     # TODO (DIFFICULT!) get rid of redundant symmetric models
     # or prove they really need to be accepted.
 
-    def __init__(self):
+    def __init__(self, args, max_time=9):
+        self.args = args
+        self.max_time = max_time
+
         self.planner = Planner()
 
     def on_model(self, model):
         symbols = model.symbols(shown=True)
-        self.planner.optimize_plan(symbols)
+        self.planner.optimize_plan(symbols, max_time)
 
-    def run(self, size_x, size_y, components): # TODO - do not hardcode generator params
-        ctl = Control(["-n0", f"-cx={size_x}", f"-cy={size_y}", f"-ck={components}"])
-        #ctl = Control(["-n0", "-cx=2", "-cy=2", "-ck=3"])
-        ctl.load("topology/basic_2d_grid.lp")
+    def run(self, topology):
+        args_str = "_".join(f"{k}={v}" for k,v in sorted(self.args.items()))
+        output_directory = f"by_maxtime/{self.max_time}/{args_str}"
+        output_file_name = f"{output_directory}/{topology}"
+        if os.path.isfile(output_file_name):
+            print(f"file {output_file_name} already exists, skipping")
+            return
+        print("attempting", output_file_name)
+
+        args = ["-n0"]
+        for k, v in self.args.items():
+            args.append(f"-c{k}={v}")
+
+        ctl = Control(args)
+        ctl.load(f"topology/{topology}.lp")
         ctl.load("connectivity.lp")
-        ctl.ground([("base",[])])
+        ctl.ground([("base",())])
 
         sol = ctl.solve(on_model=self.on_model)
         assert sol.exhausted
 
+        (graph, plan), cost = self.planner.models.best
+        output_data = Graph2dSquare.fromModel(graph+plan).formatPlanMathematica()
+        os.makedirs(output_directory, exist_ok=True)
+        with open(output_file_name, "w") as outf:
+            print(output_data, file=outf)
+            print(cost, file=outf)
+        print("wrote file", output_file_name)
+        with open(output_file_name + "_model", "w") as outf:
+            for atom in graph:
+                print(str(atom)+".", file=outf)
+        print("wrote file", output_file_name+"_model")
+
+
 if __name__ == "__main__":
-    generator  = Generator()
-    generator.run(4,4,3)
-    #print(generator.planner.best)
+    for max_time in range(2, 10):
+        for size in [2,3,4]:
+            #max_components = size**2 // 2 + 1 # kinda arbitrary. Perhaps too low or too hight?
+            max_components = size+1
+            for n_components in range(3, max_components):
+                args_dict = {"x": size, "y": size, "k": n_components}
+                generator  = Generator(args_dict, max_time)
+                generator.run("basic_2d_grid")

@@ -76,7 +76,7 @@ solved_at(Timestamp) :-
 % Only interested in the first solution. Everything beyond is redundant.
 min_solved_at(Timestamp) :- Timestamp = #min{ T : solved_at(T) }.
 
-solution_complexity(Complexity) :- min_solved_at(Timestamp), plan_complexity(Timestamp, Complexity).
+solution_complexity(Complexity) :- min_solved_at(Timestamp), plan_complexity(Timestamp-1, Complexity).
 
 % Optimization directive
 :~ solution_complexity(Complexity). [Complexity@0]
@@ -92,3 +92,4 @@ solution_complexity(Complexity) :- min_solved_at(Timestamp), plan_complexity(Tim
 #show max_time/1.
 #show min_solved_at/1.
 #show solution_complexity/1.
+#show plan_complexity/2.
